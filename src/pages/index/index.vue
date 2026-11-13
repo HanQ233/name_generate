@@ -217,7 +217,7 @@
         >
           上一页
         </view>
-        <text class="page-current">第 {{ currentPage }} 页</text>
+        <text class="page-current">{{ pageRangeText }}</text>
         <view
           class="page-button"
           :class="{ disabled: reachedEnd || isSearching }"
@@ -278,6 +278,27 @@
               </view>
             </view>
           </view>
+        </view>
+      </view>
+
+      <view
+        v-if="displayMode === 'generated'"
+        class="pagination-row pagination-bottom"
+      >
+        <view
+          class="page-button"
+          :class="{ disabled: currentPage <= 1 || isSearching }"
+          @tap="goToPreviousPage"
+        >
+          上一页
+        </view>
+        <text class="page-current">{{ pageRangeText }}</text>
+        <view
+          class="page-button"
+          :class="{ disabled: reachedEnd || isSearching }"
+          @tap="goToNextPage"
+        >
+          下一页
         </view>
       </view>
     </view>
@@ -543,9 +564,25 @@ const searchButtonText = computed(() => {
   return `生成候选`;
 });
 
-const resultTitle = computed(() =>
-  displayMode.value === "favorites" ? "收藏名" : "候选名",
+/** 当前显示结果集的总数，与 results 在分页时同步，避免导出刷新缓存导致数字错位。 */
+const generatedTotalCount = ref(0);
+const totalResultCount = computed(() =>
+  displayMode.value === "favorites"
+    ? favorites.value.length
+    : generatedTotalCount.value,
 );
+
+const resultTitle = computed(() => {
+  const label = displayMode.value === "favorites" ? "收藏名" : "候选名";
+  return `${label}（共 ${totalResultCount.value} 个）`;
+});
+
+/** 本页序号范围，用 getRankNumber 保证与卡片左上角编号一致。 */
+const pageRangeText = computed(() => {
+  const total = totalResultCount.value;
+  if (results.value.length === 0) return `0-0/${total}`;
+  return `${getRankNumber(0)}-${getRankNumber(results.value.length - 1)}/${total}`;
+});
 
 const resultCount = computed(() => {
   if (displayMode.value === "favorites") return favorites.value.length;
@@ -559,7 +596,7 @@ const resultSummary = computed(() => {
       : "尚未收藏名字";
   }
   if (!hasSearched.value) return "输入指定字后生成候选";
-  return `第 ${currentPage.value} 页`;
+  return `第 ${currentPage.value} 页 · ${pageRangeText.value}`;
 });
 
 const emptyStateText = computed(() => {
@@ -1155,12 +1192,14 @@ async function runSearchPage(page: number) {
     const pageSize = limit.value;
     const start = (page - 1) * pageSize;
     results.value = queriedResults.slice(start, start + pageSize);
+    generatedTotalCount.value = queriedResults.length;
     currentPage.value = page;
     reachedEnd.value = queriedResults.length <= start + pageSize;
     lastSearchSignature.value = getCurrentSearchSignature();
   } catch (error) {
     errorMessage.value = getErrorMessage(error);
     results.value = [];
+    generatedTotalCount.value = 0;
   } finally {
     isSearching.value = false;
   }
@@ -1899,6 +1938,11 @@ function getErrorMessage(error: unknown): string {
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.pagination-bottom {
+  margin-top: 16px;
+  margin-bottom: 0;
 }
 
 .page-button {

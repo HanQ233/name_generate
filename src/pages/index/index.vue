@@ -1802,6 +1802,29 @@ function getErrorMessage(error: unknown): string {
   color: #9a3f2e;
 }
 
+/* Taro H5 在 html、.taro-app-wrap 以及 <text> 组件上全局设了 user-select:none，
+   导致候选名无法选中、无法复制。这里只在结果区放开文本选择。 */
+.result-section,
+.result-section * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+/* 按钮文字保持不可选，避免长按/点击时被选中干扰操作 */
+.result-section .page-button,
+.result-section .page-button *,
+.result-section .favorite-card-button,
+.result-section .favorite-card-button *,
+.result-section .source-link,
+.result-section .source-link * {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+}
+
 .result-section {
   margin-top: 24px;
 }

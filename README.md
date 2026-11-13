@@ -2,7 +2,7 @@
 
 ## 在线地址
 
-https://hanq233.github.io/
+https://hanq233.github.io/name_generate/
 
 一个纯静态的起名工具。输入姓氏，从真实人名语料中筛选候选名，并按音韵规则（平仄、双声、叠韵、同音避讳）打分排序，支持指定用字、避讳名单与候选列表下载。
 
@@ -36,7 +36,9 @@ https://hanq233.github.io/
 
 ## 部署方式
 
-仓库名为 `HanQ233.github.io`，GitHub Pages 发布源为 `gh-pages` 分支。推送到 `master` 后由 `.github/workflows/deploy.yml` 自动构建并发布。
+仓库名为 `name_generate`，作为 GitHub Pages 项目站点发布在 `https://hanq233.github.io/name_generate/`，发布源为 `gh-pages` 分支根目录（`dist` 的内容直接发到该分支根，URL 前缀 `/name_generate/` 由项目站点自动映射）。推送到 `master` 后由 `.github/workflows/deploy.yml` 自动构建并发布。
+
+前端所有静态资源与数据接口均带 `/name_generate/` 前缀：`config/index.ts` 的 `publicPath`、`.env` 的 `TARO_APP_API_BASE`、`src/index.html` 的 favicon，以及 vite dev 中间件的挂载路径，改动站点路径时这四处必须一起改。
 
 注意：若通过 API（而非网页端或本地 git）提交，Push 事件可能不触发 Actions，需要到 Actions 页面手动 `Run workflow`。
 

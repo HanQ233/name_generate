@@ -17,7 +17,7 @@ function apiStaticPlugin() {
   return {
     name: 'api-static-files',
     configureServer(server) {
-      server.middlewares.use('/api', (req, res, next) => {
+      server.middlewares.use('/name_generate/api', (req, res, next) => {
         const requestPath = decodeURIComponent((req.url || '').split('?')[0] || '')
         const normalized = path.normalize(requestPath).replace(/^(\.\.(\/|\\|$))+/, '')
         const filePath = path.resolve(apiDir, normalized.replace(/^[\/\\]+/, ''))
@@ -68,7 +68,7 @@ function imageStaticPlugin() {
   return {
     name: 'image-static-files',
     configureServer(server) {
-      server.middlewares.use('/resource/img', (req, res, next) => {
+      server.middlewares.use('/name_generate/resource/img', (req, res, next) => {
         const requestPath = decodeURIComponent((req.url || '').split('?')[0] || '')
         const normalized = path.normalize(requestPath).replace(/^(\.\.(\/|\\|$))+/, '')
         const filePath = path.resolve(imgDir, normalized.replace(/^[\/\\]+/, ''))
@@ -147,7 +147,7 @@ export default defineConfig<'vite'>(async (merge, { command, mode }) => {
       }
     },
     h5: {
-      publicPath: '/',
+      publicPath: '/name_generate/',
       staticDirectory: 'static',
 
       miniCssExtractPluginOption: {

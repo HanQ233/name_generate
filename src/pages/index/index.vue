@@ -123,10 +123,10 @@
             @input="onInput('mustText', $event)"
           />
           <text class="must-hint">
-            只写汉字即可：不需要任何标点、逗号、顿号，也不用空格分隔；标点、空格、数字、字母会自动忽略。
+            框里预设的字只是示例，可直接修改或全部删掉换成自己的字；输入任意汉字都行，最终只按你填的字筛选。
           </text>
           <text class="must-hint">
-            每个汉字单独算一个指定字，换行只用于分组，不影响结果。
+            只写汉字即可：不需要标点、逗号、顿号或空格，标点、空格、数字、字母会自动忽略；每个汉字单独生效，换行仅用于分组。
           </text>
           <view class="loose-action-row">
             <view class="reset-button" @tap="handleReset">重置</view>
@@ -772,8 +772,9 @@ function restoreQueryConfig() {
   if (isNameStyle(stored.style)) style.value = stored.style;
   if (typeof stored.mustText === "string") {
     const restored = sliceText(normalizeMustText(stored.mustText), 160);
-    // 旧版本允许「不指定字」并保存空内容，这里回落到预设指定字，避免必填项为空
-    if (restored.trim()) mustText.value = restored;
+    // 旧版「不指定字」模式会存下空指定字，升级后回落到预设；
+    // 新版没有 looseMode 字段，空值说明是用户主动清空，尊重用户选择。
+    if (restored.trim() || !("looseMode" in stored)) mustText.value = restored;
   }
   if (isMustPosition(stored.mustPosition))
     mustPosition.value = stored.mustPosition;

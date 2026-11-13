@@ -40,6 +40,21 @@
           <text class="must-hint">
             只写汉字即可：不需要标点、逗号、顿号或空格，标点、空格、数字、字母会自动忽略；每个汉字单独生效，换行仅用于分组。
           </text>
+          <view class="homophone-row" @tap="toggleHomophones">
+            <view class="homophone-switch" :class="{ on: includeHomophones }">
+              <view class="homophone-switch-knob" />
+            </view>
+            <text class="homophone-label">包含同音字</text>
+            <text class="homophone-help">每个指定字连同它的同音字一起找</text>
+          </view>
+          <view v-if="includeHomophones" class="homophone-summary">
+            <text
+              v-for="line in homophoneSummaryLines"
+              :key="line"
+              class="homophone-summary-line"
+              >{{ line }}</text
+            >
+          </view>
           <view class="loose-action-row">
             <view class="reset-button" @tap="handleReset">重置</view>
           </view>
@@ -228,6 +243,11 @@
       </view>
 
       <text class="copy-hint">点击名字即可复制，也可拖选文字</text>
+      <text
+        v-if="displayMode === 'generated' && lastSearchHomophones"
+        class="priority-hint"
+        >已优先展示包含指定字的名字，其后才是同音字命中的名字</text
+      >
 
       <view class="result-list">
         <view
@@ -377,15 +397,25 @@ type StoredQueryConfig = {
   style: NameStyle;
   mustText: string;
   mustPosition: MustPosition;
+  includeHomophones: boolean;
   avoidText: string;
   limit: number;
   sortMode: SortMode;
 };
 
+type HomophoneDetail = {
+  char: string;
+  pinyin: string;
+  homophones: string[];
+  libraryCount: number;
+  hasPronunciation: boolean;
+};
+
 const DATABASE_BASE = "/api/database/candidate";
-// v5 起「指定字」默认空框；v4 只用于一次性迁移其余查询设置
-const QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v5";
-const LEGACY_QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v4";
+// v6 增加「包含同音字」开关；v5 完整保留，v4 只用于一次性迁移其余查询设置
+const QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v6";
+const LEGACY_QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v5";
+const OLD_QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v4";
 const FAVORITES_STORAGE_KEY = "name-generator:favorites:v1";
 
 type SourceInfo = {
@@ -462,6 +492,7 @@ const frequencyMax = ref(100);
 const style = ref<NameStyle>("any");
 const mustText = ref("");
 const mustPosition = ref<MustPosition>("any");
+const includeHomophones = ref(false);
 const avoidText = ref("强国军\n涵煜伊惠婷航明伟丽鲁\n熙沐橙一祎\n海景锦子");
 const limit = ref(30);
 const sortMode = ref<SortMode>("pinyin");
@@ -470,6 +501,10 @@ const sourceIndex = ref<SourceIndex | null>(null);
 const charDb = ref<CharDb | null>(null);
 const candidateCache = new Map<string, CandidateName[]>();
 const sourceNameCache = new Map<string, Record<string, string[]>>();
+const candidateCharCache = new Map<string, Set<string>>();
+const candidateCharSet = ref<Set<string> | null>(null);
+let homophoneIndexCache: Map<string, string[]> | null = null;
+let homophoneIndexDb: CharDb | null = null;
 const results = ref<PublicResult[]>([]);
 const errorMessage = ref("");
 const isSearching = ref(false);
@@ -480,6 +515,8 @@ const displayMode = ref<DisplayMode>("generated");
 const currentPage = ref(1);
 const reachedEnd = ref(false);
 const lastSearchSignature = ref("");
+/** 当前展示的这批结果是不是按「包含同音字」生成的，避免开关与旧结果错位提示。 */
+const lastSearchHomophones = ref(false);
 const sortedSearchSignature = ref("");
 const sortedResults = ref<PublicResult[]>([]);
 const favorites = ref<FavoriteResult[]>([]);
@@ -620,11 +657,50 @@ const emptyStateText = computed(() => {
   return "";
 });
 
+/** 开关打开时实时说明每个指定字会扩成哪些字，避免结果来源不透明。 */
+const homophoneSummaryLines = computed<string[]>(() => {
+  if (!includeHomophones.value) return [];
+  const chars = Array.from(new Set(splitChineseChars(mustText.value)));
+  if (chars.length === 0) {
+    return [
+      "勾选后，每个指定字会连同它的同音字一起查找；包含原字的名字排在前面。",
+    ];
+  }
+  const db = charDb.value;
+  const availableChars = candidateCharSet.value;
+  if (!db || !availableChars) return ["正在读取字库…"];
+  const { details } = expandHomophones(db, chars, availableChars);
+  return details.map((detail) => {
+    if (!detail.hasPronunciation) {
+      return `${detail.char}：字库未登记读音，只按原字匹配`;
+    }
+    const list = detail.homophones.join(" ");
+    return `${detail.char} · ${detail.pinyin} → 字库同音 ${detail.libraryCount} 字，候选库收录 ${detail.homophones.length} 字：${list || "（无）"}`;
+  });
+});
+
+async function toggleHomophones() {
+  includeHomophones.value = !includeHomophones.value;
+  if (!includeHomophones.value) return;
+  try {
+    await loadCandidateDb(selectedSourceId.value);
+  } catch {
+    // 生成候选时会再次加载，并在那里给出正式错误提示
+  }
+}
+
 onMounted(async () => {
   try {
     restoreQueryConfig();
     restoreFavorites();
     await loadSourceIndex();
+    if (includeHomophones.value) {
+      try {
+        await loadCandidateDb(selectedSourceId.value);
+      } catch {
+        // 只是为了尽早显示回显，失败不阻断页面初始化
+      }
+    }
     storageReady.value = true;
     saveQueryConfig();
   } catch (error) {
@@ -649,6 +725,7 @@ watch(
     style,
     mustText,
     mustPosition,
+    includeHomophones,
     avoidText,
     limit,
     sortMode,
@@ -731,6 +808,7 @@ function getCurrentQueryConfig(): StoredQueryConfig {
     style: style.value,
     mustText: mustText.value,
     mustPosition: mustPosition.value,
+    includeHomophones: includeHomophones.value,
     avoidText: avoidText.value,
     limit: limit.value,
     sortMode: sortMode.value,
@@ -742,12 +820,17 @@ function getCurrentSearchSignature(): string {
 }
 
 function migrateLegacyQueryConfig(): Partial<StoredQueryConfig> | null {
-  const legacy = readStorageJson<
+  // v5 的指定字是用户自己输入的，完整保留；同音开关缺省即关闭
+  const v5 = readStorageJson<Partial<StoredQueryConfig>>(
+    LEGACY_QUERY_CONFIG_STORAGE_KEY,
+  );
+  if (v5 && typeof v5 === "object") return v5;
+  // v4 会把内置预设写进指定字，迁移时丢弃指定字，其余设置照常保留
+  const v4 = readStorageJson<
     Partial<StoredQueryConfig> & { looseMode?: boolean }
-  >(LEGACY_QUERY_CONFIG_STORAGE_KEY);
-  if (!legacy || typeof legacy !== "object") return null;
-  // v4 会把内置预设写进指定字；v5 默认空框，迁移时丢弃指定字，其余设置照常保留
-  const { mustText: _mustText, looseMode: _looseMode, ...rest } = legacy;
+  >(OLD_QUERY_CONFIG_STORAGE_KEY);
+  if (!v4 || typeof v4 !== "object") return null;
+  const { mustText: _mustText, looseMode: _looseMode, ...rest } = v4;
   return rest;
 }
 
@@ -774,6 +857,8 @@ function restoreQueryConfig() {
   }
   if (isMustPosition(stored.mustPosition))
     mustPosition.value = stored.mustPosition;
+  if (typeof stored.includeHomophones === "boolean")
+    includeHomophones.value = stored.includeHomophones;
   if (typeof stored.avoidText === "string") avoidText.value = stored.avoidText;
   if (typeof stored.limit === "number") setLimit(stored.limit);
   if (isSortMode(stored.sortMode)) sortMode.value = stored.sortMode;
@@ -867,6 +952,99 @@ async function exportCsv() {
   }
 }
 
+/** 字库同音判定键：无声调拼音 + 声调数字；兼容 v / u: 两种 ü 写法。 */
+function homophoneKey(syllable: string, tone: number): string {
+  const normalized = String(syllable || "")
+    .toLowerCase()
+    .replace(/u:/gu, "ü")
+    .replace(/v/gu, "ü");
+  if (!/^[a-zü]+$/u.test(normalized)) return "";
+  if (!Number.isInteger(tone) || tone < 1 || tone > 4) return "";
+  return `${normalized}${tone}`;
+}
+
+/** 一次性把字库倒排成「读音 → 同音字」，按字库实例缓存。 */
+function buildHomophoneIndex(db: CharDb): Map<string, string[]> {
+  if (homophoneIndexCache && homophoneIndexDb === db) return homophoneIndexCache;
+  const index = new Map<string, string[]>();
+  for (const [char, info] of Object.entries(db)) {
+    const key = homophoneKey(info.pinyinWithoutTone, info.tone);
+    if (!key) continue;
+    const list = index.get(key);
+    if (list) list.push(char);
+    else index.set(key, [char]);
+  }
+  homophoneIndexCache = index;
+  homophoneIndexDb = db;
+  return index;
+}
+
+/**
+ * 每个指定字按字库读音扩成同音字；只保留候选库里真正出现过的字，
+ * 让回显与实际查询范围一致。字库没有读音的字保持原样、不乱扩。
+ */
+function expandHomophones(
+  db: CharDb,
+  directChars: string[],
+  availableChars: Set<string> | null,
+): { must: string[]; details: HomophoneDetail[] } {
+  const index = buildHomophoneIndex(db);
+  const mustSet = new Set<string>(directChars);
+  const details: HomophoneDetail[] = [];
+  for (const char of Array.from(new Set(directChars))) {
+    const info = db[char];
+    const key = info ? homophoneKey(info.pinyinWithoutTone, info.tone) : "";
+    const sameSound = key ? index.get(key) || [] : [];
+    if (!info || !key || sameSound.length === 0) {
+      details.push({
+        char,
+        pinyin: info?.pinyin || "",
+        homophones: [],
+        libraryCount: 0,
+        hasPronunciation: false,
+      });
+      continue;
+    }
+    const usable = availableChars
+      ? sameSound.filter((item) => availableChars.has(item))
+      : sameSound;
+    for (const item of usable) mustSet.add(item);
+    details.push({
+      char,
+      pinyin: info.pinyin,
+      homophones: usable,
+      libraryCount: sameSound.length,
+      hasPronunciation: true,
+    });
+  }
+  return { must: Array.from(mustSet), details };
+}
+
+/** 包含用户原始指定字的名字排在前面，各组内部保持当前排序模式的顺序。 */
+function prioritizeDirectHits(
+  items: PublicResult[],
+  directChars: string[],
+  position: MustPosition,
+): PublicResult[] {
+  if (directChars.length === 0) return items;
+  const directSet = new Set(directChars);
+  const isDirect = (item: PublicResult): boolean => {
+    const chars = Array.from(item.name);
+    if (position === "second" || position === "第二位")
+      return directSet.has(chars[0] || "");
+    if (position === "third" || position === "第三位")
+      return directSet.has(chars[1] || "");
+    return chars.some((char) => directSet.has(char));
+  };
+  return items
+    .map((item, index) => ({ item, index, direct: isDirect(item) }))
+    .sort((a, b) => {
+      if (a.direct !== b.direct) return a.direct ? -1 : 1;
+      return a.index - b.index;
+    })
+    .map((entry) => entry.item);
+}
+
 /** 把带声调的拼音转成可比较的字母序键（ü 按 v 处理，声调忽略）。 */
 function pinyinSortKey(item: PublicResult): string {
   return item.pinyin
@@ -901,14 +1079,18 @@ async function getSortedResults(): Promise<PublicResult[]> {
     return sortedResults.value;
   }
 
-  const candidateDb = applyFrequencyRange(
-    await loadCandidateDb(selectedSourceId.value),
-  );
+  const fullCandidateDb = await loadCandidateDb(selectedSourceId.value);
+  const candidateDb = applyFrequencyRange(fullCandidateDb);
   const loadedCharDb = await loadCharDb();
+  const directChars = splitChineseChars(mustText.value);
+  const expansion: { must: string[]; details: HomophoneDetail[] } =
+    includeHomophones.value
+      ? expandHomophones(loadedCharDb, directChars, candidateCharSet.value)
+      : { must: directChars, details: [] };
   const query: QueryConfig = {
     surname: stripNonChinese(surname.value),
     avoid: parseAvoidList(avoidText.value),
-    must: splitChineseChars(mustText.value),
+    must: expansion.must,
     mustPosition: mustPosition.value,
     style: style.value,
     sourcePreference: selectedSourceId.value,
@@ -921,10 +1103,15 @@ async function getSortedResults(): Promise<PublicResult[]> {
   }).map(toPublicResult);
   const ordered =
     sortMode.value === "pinyin" ? sortByPinyin(allResults) : allResults;
+  const prioritized = prioritizeDirectHits(
+    ordered,
+    directChars,
+    mustPosition.value,
+  );
 
-  sortedResults.value = ordered;
+  sortedResults.value = prioritized;
   sortedSearchSignature.value = searchSignature;
-  return ordered;
+  return prioritized;
 }
 
 /**
@@ -1196,10 +1383,12 @@ async function runSearchPage(page: number) {
     currentPage.value = page;
     reachedEnd.value = queriedResults.length <= start + pageSize;
     lastSearchSignature.value = getCurrentSearchSignature();
+    lastSearchHomophones.value = includeHomophones.value;
   } catch (error) {
     errorMessage.value = getErrorMessage(error);
     results.value = [];
     generatedTotalCount.value = 0;
+    lastSearchHomophones.value = false;
   } finally {
     isSearching.value = false;
   }
@@ -1250,7 +1439,10 @@ async function loadCandidateDb(
 ): Promise<CandidateName[]> {
   const cacheKey = String(sourceId);
   const cached = candidateCache.get(cacheKey);
-  if (cached) return cached;
+  if (cached) {
+    setActiveCandidateChars(cacheKey, cached);
+    return cached;
+  }
 
   const stats = sourceIndex.value?.sources?.[sourceId];
   const file = stats?.file || `sources/${sourceId}.candidate_names.json`;
@@ -1267,7 +1459,23 @@ async function loadCandidateDb(
     sourceNamesByName,
   });
   candidateCache.set(cacheKey, candidateDb);
+  setActiveCandidateChars(cacheKey, candidateDb);
   return candidateDb;
+}
+
+/** 供同音字回显使用：当前来源候选库里真正出现过的汉字集合。 */
+function setActiveCandidateChars(cacheKey: string, db: CandidateName[]) {
+  const cached = candidateCharCache.get(cacheKey);
+  if (cached) {
+    candidateCharSet.value = cached;
+    return;
+  }
+  const chars = new Set<string>();
+  for (const item of db) {
+    for (const char of item.chars) chars.add(char);
+  }
+  candidateCharCache.set(cacheKey, chars);
+  candidateCharSet.value = chars;
 }
 
 async function requestJson<T>(filePath: string): Promise<T> {
@@ -1552,6 +1760,76 @@ function getErrorMessage(error: unknown): string {
   color: #7a837f;
   font-size: 20px;
   line-height: 28px;
+}
+
+.homophone-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid #d7ddd8;
+  border-radius: 8px;
+  background: #f7faf8;
+}
+
+.homophone-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 68px;
+  height: 38px;
+  border-radius: 19px;
+  background: #c8d2cc;
+}
+
+.homophone-switch.on {
+  background: #3f8b67;
+}
+
+.homophone-switch-knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.18s ease;
+}
+
+.homophone-switch.on .homophone-switch-knob {
+  transform: translateX(30px);
+}
+
+.homophone-label {
+  flex: 0 0 auto;
+  color: #17211e;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.homophone-help {
+  flex: 1;
+  min-width: 0;
+  color: #7a837f;
+  font-size: 20px;
+  line-height: 28px;
+  text-align: right;
+}
+
+.homophone-summary {
+  margin-top: 10px;
+  padding: 12px 16px;
+  border-radius: 8px;
+  background: #eef5f1;
+}
+
+.homophone-summary-line {
+  display: block;
+  color: #35594a;
+  font-size: 20px;
+  line-height: 30px;
+  word-break: break-all;
 }
 
 .source-scroll {
@@ -2076,6 +2354,14 @@ function getErrorMessage(error: unknown): string {
   color: #7c8a84;
 }
 
+.priority-hint {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 20px;
+  line-height: 28px;
+  color: #3f8b67;
+}
+
 .score {
   flex: 0 0 auto;
   font-size: 26px;
@@ -2184,8 +2470,13 @@ function getErrorMessage(error: unknown): string {
     flex-direction: column;
   }
 
-  .field-help {
+  .field-help,
+  .homophone-help {
     text-align: left;
+  }
+
+  .homophone-row {
+    flex-wrap: wrap;
   }
 }
 </style>

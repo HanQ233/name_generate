@@ -110,28 +110,26 @@
           </view>
         </view>
 
-        <view class="field-block wide" :class="{ disabled: looseMode }">
+        <view class="field-block wide">
           <view class="label-row">
             <text class="field-label">指定字</text>
-            <text class="field-help">可填多个字，候选名至少包含其中一个</text>
+            <text class="field-help">必填，候选名至少包含其中一个字</text>
           </view>
           <textarea
             class="text-area must-area"
-            :class="{ disabled: looseMode }"
             :value="mustText"
             maxlength="160"
-            :disabled="looseMode"
+            placeholder="只填汉字，无需标点和空格，例如：素处以默"
             @input="onInput('mustText', $event)"
           />
+          <text class="must-hint">
+            只写汉字即可：不需要任何标点、逗号、顿号，也不用空格分隔；标点、空格、数字、字母会自动忽略。
+          </text>
+          <text class="must-hint">
+            每个汉字单独算一个指定字，换行只用于分组，不影响结果。
+          </text>
           <view class="loose-action-row">
             <view class="reset-button" @tap="handleReset">重置</view>
-            <view
-              class="toggle-button"
-              :class="{ active: looseMode }"
-              @tap="looseMode = !looseMode"
-            >
-              不指定字，随便看看
-            </view>
           </view>
         </view>
 
@@ -387,7 +385,6 @@ type StoredQueryConfig = {
   frequencyMax: number;
   style: NameStyle;
   mustText: string;
-  looseMode: boolean;
   mustPosition: MustPosition;
   avoidText: string;
   limit: number;
@@ -485,7 +482,6 @@ const frequencyMin = ref(1);
 const frequencyMax = ref(100);
 const style = ref<NameStyle>("any");
 const mustText = ref(DEFAULT_MUST_TEXT);
-const looseMode = ref(true);
 const mustPosition = ref<MustPosition>("any");
 const avoidText = ref("强国军\n涵煜伊惠婷航明伟丽鲁\n熙沐橙一祎\n海景锦子");
 const limit = ref(30);
@@ -658,7 +654,6 @@ watch(
     frequencyMax,
     style,
     mustText,
-    looseMode,
     mustPosition,
     avoidText,
     limit,
@@ -746,7 +741,6 @@ function getCurrentQueryConfig(): StoredQueryConfig {
     frequencyMax: frequencyMax.value,
     style: style.value,
     mustText: mustText.value,
-    looseMode: looseMode.value,
     mustPosition: mustPosition.value,
     avoidText: avoidText.value,
     limit: limit.value,
@@ -777,9 +771,10 @@ function restoreQueryConfig() {
     frequencyMax.value = clampFrequencyPercent(stored.frequencyMax);
   if (isNameStyle(stored.style)) style.value = stored.style;
   if (typeof stored.mustText === "string") {
-    mustText.value = sliceText(normalizeMustText(stored.mustText), 160);
+    const restored = sliceText(normalizeMustText(stored.mustText), 160);
+    // 旧版本允许「不指定字」并保存空内容，这里回落到预设指定字，避免必填项为空
+    if (restored.trim()) mustText.value = restored;
   }
-  if (typeof stored.looseMode === "boolean") looseMode.value = stored.looseMode;
   if (isMustPosition(stored.mustPosition))
     mustPosition.value = stored.mustPosition;
   if (typeof stored.avoidText === "string") avoidText.value = stored.avoidText;
@@ -882,9 +877,9 @@ async function exportCsv() {
 async function collectAllResults(): Promise<PublicResult[]> {
   const cleanedSurname = stripNonChinese(surname.value);
   if (!cleanedSurname) throw new Error("请输入姓氏");
-  const must = looseMode.value ? [] : splitChineseChars(mustText.value);
-  if (!looseMode.value && must.length === 0) {
-    throw new Error("请填写至少一个指定字，或选择“不指定字，随便看看”");
+  const must = splitChineseChars(mustText.value);
+  if (must.length === 0) {
+    throw new Error("请先输入指定字，再生成候选");
   }
 
   const searchSignature = getCurrentSearchSignature();
@@ -1078,8 +1073,8 @@ function formatDateTime(date: Date): string {
   ].join("");
 }
 
-function showToast(title: string) {
-  Taro.showToast({ title, icon: "none" });
+function showToast(title: string, duration = 1500) {
+  Taro.showToast({ title, icon: "none", duration });
 }
 
 async function handleSearch() {
@@ -1104,20 +1099,20 @@ async function runSearchPage(
   options: { refreshRandom?: boolean } = {},
 ) {
   errorMessage.value = "";
-  hasSearched.value = true;
-  displayMode.value = "generated";
   const cleanedSurname = stripNonChinese(surname.value);
   if (!cleanedSurname) {
     errorMessage.value = "请输入姓氏";
     return;
   }
 
-  const must = looseMode.value ? [] : splitChineseChars(mustText.value);
-  if (!looseMode.value && must.length === 0) {
-    errorMessage.value = "请填写至少一个指定字，或选择“不指定字，随便看看”";
+  const must = splitChineseChars(mustText.value);
+  if (must.length === 0) {
+    showToast("请先输入指定字，再生成候选", 2500);
     return;
   }
 
+  hasSearched.value = true;
+  displayMode.value = "generated";
   isSearching.value = true;
   try {
     const candidateDb = applyFrequencyRange(
@@ -1490,11 +1485,6 @@ function getErrorMessage(error: unknown): string {
   text-align: right;
 }
 
-.field-block.disabled .field-label,
-.field-block.disabled .field-help {
-  color: #9aa39f;
-}
-
 .text-input,
 .text-area {
   box-sizing: border-box;
@@ -1507,8 +1497,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 .text-input:disabled,
-.text-area:disabled,
-.text-area.disabled {
+.text-area:disabled {
   background: #eef1ee;
   color: #9aa39f;
 }
@@ -1533,6 +1522,14 @@ function getErrorMessage(error: unknown): string {
   min-height: 92px;
 }
 
+.must-hint {
+  display: block;
+  margin-top: 8px;
+  color: #7a837f;
+  font-size: 20px;
+  line-height: 28px;
+}
+
 .source-scroll {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1542,7 +1539,6 @@ function getErrorMessage(error: unknown): string {
 .source-chip,
 .segment-button,
 .icon-button,
-.toggle-button,
 .reset-button,
 .secondary-action-button,
 .page-button,
@@ -1601,7 +1597,6 @@ function getErrorMessage(error: unknown): string {
 
 .source-chip.active,
 .segment-button.active,
-.toggle-button.active,
 .favorite-card-button.active {
   border-color: #1a7668;
   background: #e8f5f1;
@@ -1656,16 +1651,15 @@ function getErrorMessage(error: unknown): string {
 }
 
 .loose-action-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  display: flex;
+  justify-content: flex-end;
   margin-top: 12px;
 }
 
-.toggle-button,
 .reset-button {
-  width: 100%;
+  min-width: 160px;
   height: 64px;
+  padding: 0 28px;
   font-size: 22px;
 }
 

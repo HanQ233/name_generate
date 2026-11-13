@@ -119,11 +119,11 @@
             class="text-area must-area"
             :value="mustText"
             maxlength="160"
-            placeholder="只填汉字，无需标点和空格，例如：素处以默"
+            placeholder="在这里输入想用的汉字，只写汉字、无需标点和空格"
             @input="onInput('mustText', $event)"
           />
           <text class="must-hint">
-            框里预设的字只是示例，可直接修改或全部删掉换成自己的字；输入任意汉字都行，最终只按你填的字筛选。
+            输入任意汉字都行，可随时修改或清空重填；框里填什么就按什么筛选。
           </text>
           <text class="must-hint">
             只写汉字即可：不需要标点、逗号、顿号或空格，标点、空格、数字、字母会自动忽略；每个汉字单独生效，换行仅用于分组。
@@ -392,22 +392,10 @@ type StoredQueryConfig = {
 };
 
 const DATABASE_BASE = "/api/database/candidate";
-const QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v4";
+// v5 起「指定字」默认空框；v4 只用于一次性迁移其余查询设置
+const QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v5";
+const LEGACY_QUERY_CONFIG_STORAGE_KEY = "name-generator:index-query-config:v4";
 const FAVORITES_STORAGE_KEY = "name-generator:favorites:v1";
-const DEFAULT_MUST_TEXT = [
-  "素处以默",
-  "妙机其微",
-  "饮之太和",
-  "独鹤与飞",
-  "犹之惠风",
-  "荏苒在衣",
-  "阅音修篁",
-  "美曰载归",
-  "遇之匪深",
-  "即之愈希",
-  "脱有形似",
-  "握手已违",
-].join("\n");
 
 type SourceInfo = {
   title: string;
@@ -481,7 +469,7 @@ const selectedSourceId = ref<SourcePreference>(
 const frequencyMin = ref(1);
 const frequencyMax = ref(100);
 const style = ref<NameStyle>("any");
-const mustText = ref(DEFAULT_MUST_TEXT);
+const mustText = ref("");
 const mustPosition = ref<MustPosition>("any");
 const avoidText = ref("强国军\n涵煜伊惠婷航明伟丽鲁\n熙沐橙一祎\n海景锦子");
 const limit = ref(30);
@@ -752,10 +740,20 @@ function getCurrentSearchSignature(): string {
   return JSON.stringify(getCurrentQueryConfig());
 }
 
+function migrateLegacyQueryConfig(): Partial<StoredQueryConfig> | null {
+  const legacy = readStorageJson<
+    Partial<StoredQueryConfig> & { looseMode?: boolean }
+  >(LEGACY_QUERY_CONFIG_STORAGE_KEY);
+  if (!legacy || typeof legacy !== "object") return null;
+  // v4 会把内置预设写进指定字；v5 默认空框，迁移时丢弃指定字，其余设置照常保留
+  const { mustText: _mustText, looseMode: _looseMode, ...rest } = legacy;
+  return rest;
+}
+
 function restoreQueryConfig() {
-  const stored = readStorageJson<Partial<StoredQueryConfig>>(
-    QUERY_CONFIG_STORAGE_KEY,
-  );
+  const stored =
+    readStorageJson<Partial<StoredQueryConfig>>(QUERY_CONFIG_STORAGE_KEY) ??
+    migrateLegacyQueryConfig();
   if (!stored || typeof stored !== "object") return;
 
   const storedSurname = stripNonChinese(String(stored.surname || "")).slice(
@@ -771,10 +769,7 @@ function restoreQueryConfig() {
     frequencyMax.value = clampFrequencyPercent(stored.frequencyMax);
   if (isNameStyle(stored.style)) style.value = stored.style;
   if (typeof stored.mustText === "string") {
-    const restored = sliceText(normalizeMustText(stored.mustText), 160);
-    // 旧版「不指定字」模式会存下空指定字，升级后回落到预设；
-    // 新版没有 looseMode 字段，空值说明是用户主动清空，尊重用户选择。
-    if (restored.trim() || !("looseMode" in stored)) mustText.value = restored;
+    mustText.value = sliceText(normalizeMustText(stored.mustText), 160);
   }
   if (isMustPosition(stored.mustPosition))
     mustPosition.value = stored.mustPosition;

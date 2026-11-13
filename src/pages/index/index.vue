@@ -227,6 +227,8 @@
         </view>
       </view>
 
+      <text class="copy-hint">点击名字即可复制，也可拖选文字</text>
+
       <view class="result-list">
         <view
           v-for="(item, index) in results"
@@ -237,11 +239,13 @@
           <view class="rank">{{ getRankNumber(index) }}</view>
           <view class="result-main">
             <view class="name-line">
-              <view class="name-title">
+              <view class="name-title" @tap="copyName(item.fullName)">
                 <text v-if="isFavorite(item.fullName)" class="favorite-star"
                   >★</text
                 >
-                <text class="full-name">{{ item.fullName }}</text>
+                <text class="full-name" title="点击复制名字">{{
+                  item.fullName
+                }}</text>
               </view>
               <view class="name-actions">
                 <text class="score">{{ item.score }}</text>
@@ -1059,6 +1063,60 @@ function formatDateTime(date: Date): string {
 
 function showToast(title: string, duration = 1500) {
   Taro.showToast({ title, icon: "none", duration });
+}
+
+/** 同步复制，确保调用发生在用户手势内；不用 Taro.setClipboardData，它会自弹 toast 且失败也报成功。 */
+function copyTextSync(text: string): boolean {
+  if (
+    typeof document === "undefined" ||
+    typeof document.execCommand !== "function"
+  ) {
+    return false;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  textarea.setSelectionRange(0, text.length);
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  }
+  document.body.removeChild(textarea);
+  return copied;
+}
+
+async function copyName(name: string) {
+  // 用户正在拖选文字时不抢复制，让他复制自己选中的片段
+  const selection =
+    typeof window !== "undefined" ? window.getSelection?.() : null;
+  if (selection && selection.toString().trim()) return;
+
+  let copied = copyTextSync(name);
+  if (
+    !copied &&
+    typeof navigator !== "undefined" &&
+    navigator.clipboard?.writeText
+  ) {
+    try {
+      await navigator.clipboard.writeText(name);
+      copied = true;
+    } catch {
+      copied = false;
+    }
+  }
+
+  showToast(
+    copied ? `已复制「${name}」` : "复制失败，请拖选名字后按 Ctrl+C",
+    copied ? 1500 : 2500,
+  );
 }
 
 async function handleSearch() {
@@ -1935,6 +1993,7 @@ function getErrorMessage(error: unknown): string {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: pointer;
 }
 
 .favorite-star {
@@ -1956,6 +2015,21 @@ function getErrorMessage(error: unknown): string {
   line-height: 48px;
   font-weight: 800;
   color: #161f1c;
+}
+
+.name-title:hover .full-name {
+  color: #12685d;
+  text-decoration: underline;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.copy-hint {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 21px;
+  line-height: 28px;
+  color: #7c8a84;
 }
 
 .score {

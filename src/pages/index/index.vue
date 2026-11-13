@@ -12,6 +12,16 @@
 
     <view class="query-panel">
       <view class="form-grid">
+        <view class="field-block wide surname-field">
+          <text class="field-label">姓氏</text>
+          <input
+            class="text-input surname-input"
+            maxlength="4"
+            :value="surname"
+            @input="onInput('surname', $event)"
+          />
+        </view>
+
         <view class="field-block wide">
           <view class="label-row">
             <text class="field-label">指定字</text>
@@ -35,17 +45,7 @@
           </view>
         </view>
 
-        <view class="field-block compact">
-          <text class="field-label">姓氏</text>
-          <input
-            class="text-input surname-input"
-            maxlength="4"
-            :value="surname"
-            @input="onInput('surname', $event)"
-          />
-        </view>
-
-        <view class="field-block">
+        <view class="field-block wide">
           <text class="field-label">位置</text>
           <view class="segmented">
             <view
@@ -1375,7 +1375,7 @@ function getErrorMessage(error: unknown): string {
   min-width: 0;
 }
 
-.field-block.compact {
+.surname-field .surname-input {
   max-width: 220px;
 }
 
@@ -1997,7 +1997,7 @@ function getErrorMessage(error: unknown): string {
     grid-template-columns: 1fr;
   }
 
-  .field-block.compact {
+  .surname-field .surname-input {
     max-width: none;
   }
 

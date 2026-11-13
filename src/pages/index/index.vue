@@ -12,6 +12,29 @@
 
     <view class="query-panel">
       <view class="form-grid">
+        <view class="field-block wide">
+          <view class="label-row">
+            <text class="field-label">指定字</text>
+            <text class="field-help">必填，候选名至少包含其中一个字</text>
+          </view>
+          <textarea
+            class="text-area must-area"
+            :value="mustText"
+            maxlength="160"
+            placeholder="在这里输入想用的汉字，只写汉字、无需标点和空格"
+            @input="onInput('mustText', $event)"
+          />
+          <text class="must-hint">
+            输入任意汉字都行，可随时修改或清空重填；框里填什么就按什么筛选。
+          </text>
+          <text class="must-hint">
+            只写汉字即可：不需要标点、逗号、顿号或空格，标点、空格、数字、字母会自动忽略；每个汉字单独生效，换行仅用于分组。
+          </text>
+          <view class="loose-action-row">
+            <view class="reset-button" @tap="handleReset">重置</view>
+          </view>
+        </view>
+
         <view class="field-block compact">
           <text class="field-label">姓氏</text>
           <input
@@ -23,25 +46,16 @@
         </view>
 
         <view class="field-block">
-          <text class="field-label">来源</text>
-          <view class="source-scroll">
+          <text class="field-label">位置</text>
+          <view class="segmented">
             <view
-              v-for="source in sourceOptions"
-              :key="source.id"
-              class="source-chip"
-              :class="{ active: selectedSourceId === source.id }"
-              @tap="selectSource(source.id)"
+              v-for="item in positionOptions"
+              :key="item.value"
+              class="segment-button"
+              :class="{ active: mustPosition === item.value }"
+              @tap="mustPosition = item.value"
             >
-              <view class="source-chip-main">
-                <text>{{ source.shortLabel }}</text>
-                <text class="source-count">{{ source.countText }}</text>
-              </view>
-              <view
-                class="source-help-button"
-                @tap.stop="showSourceInfo(source.id)"
-              >
-                ?
-              </view>
+              {{ item.label }}
             </view>
           </view>
         </view>
@@ -81,59 +95,6 @@
         </view>
 
         <view class="field-block">
-          <text class="field-label">风格</text>
-          <view class="segmented">
-            <view
-              v-for="item in styleOptions"
-              :key="item.value"
-              class="segment-button"
-              :class="{ active: style === item.value }"
-              @tap="style = item.value"
-            >
-              {{ item.label }}
-            </view>
-          </view>
-        </view>
-
-        <view class="field-block">
-          <text class="field-label">位置</text>
-          <view class="segmented">
-            <view
-              v-for="item in positionOptions"
-              :key="item.value"
-              class="segment-button"
-              :class="{ active: mustPosition === item.value }"
-              @tap="mustPosition = item.value"
-            >
-              {{ item.label }}
-            </view>
-          </view>
-        </view>
-
-        <view class="field-block wide">
-          <view class="label-row">
-            <text class="field-label">指定字</text>
-            <text class="field-help">必填，候选名至少包含其中一个字</text>
-          </view>
-          <textarea
-            class="text-area must-area"
-            :value="mustText"
-            maxlength="160"
-            placeholder="在这里输入想用的汉字，只写汉字、无需标点和空格"
-            @input="onInput('mustText', $event)"
-          />
-          <text class="must-hint">
-            输入任意汉字都行，可随时修改或清空重填；框里填什么就按什么筛选。
-          </text>
-          <text class="must-hint">
-            只写汉字即可：不需要标点、逗号、顿号或空格，标点、空格、数字、字母会自动忽略；每个汉字单独生效，换行仅用于分组。
-          </text>
-          <view class="loose-action-row">
-            <view class="reset-button" @tap="handleReset">重置</view>
-          </view>
-        </view>
-
-        <view class="field-block">
           <text class="field-label">返回候选数</text>
           <view class="limit-control">
             <view class="icon-button" @tap="setLimit(limit - 5)">-</view>
@@ -149,12 +110,17 @@
 
         <view class="field-block">
           <text class="field-label">排序</text>
-          <checkbox-group class="checkbox-group" @change="onRandomSortChange">
-            <label class="checkbox-option">
-              <checkbox value="random" :checked="randomSort" color="#1a7668" />
-              <text>随机排序</text>
-            </label>
-          </checkbox-group>
+          <view class="segmented sort-segmented">
+            <view
+              v-for="item in sortOptions"
+              :key="item.value"
+              class="segment-button"
+              :class="{ active: sortMode === item.value }"
+              @tap="sortMode = item.value"
+            >
+              {{ item.label }}
+            </view>
+          </view>
         </view>
 
         <view class="field-block wide">
@@ -170,7 +136,6 @@
 
       <view class="action-row">
         <view class="load-summary">
-          <text>{{ selectedSourceLabel }}</text>
           <text>{{ selectedSourceMeta }}</text>
         </view>
         <view class="action-buttons">
@@ -376,6 +341,7 @@ type SourceIndex = {
 
 type PublicResult = ReturnType<typeof toPublicResult>;
 type DisplayMode = "generated" | "favorites";
+type SortMode = "pinyin" | "toneScore";
 type FavoriteResult = PublicResult & { favoritedAt: number };
 
 type StoredQueryConfig = {
@@ -388,7 +354,7 @@ type StoredQueryConfig = {
   mustPosition: MustPosition;
   avoidText: string;
   limit: number;
-  randomSort: boolean;
+  sortMode: SortMode;
 };
 
 const DATABASE_BASE = "/api/database/candidate";
@@ -473,7 +439,7 @@ const mustText = ref("");
 const mustPosition = ref<MustPosition>("any");
 const avoidText = ref("强国军\n涵煜伊惠婷航明伟丽鲁\n熙沐橙一祎\n海景锦子");
 const limit = ref(30);
-const randomSort = ref(true);
+const sortMode = ref<SortMode>("pinyin");
 
 const sourceIndex = ref<SourceIndex | null>(null);
 const charDb = ref<CharDb | null>(null);
@@ -489,16 +455,15 @@ const displayMode = ref<DisplayMode>("generated");
 const currentPage = ref(1);
 const reachedEnd = ref(false);
 const lastSearchSignature = ref("");
-const randomizedSearchSignature = ref("");
-const randomizedResults = ref<PublicResult[]>([]);
+const sortedSearchSignature = ref("");
+const sortedResults = ref<PublicResult[]>([]);
 const favorites = ref<FavoriteResult[]>([]);
 const storageReady = ref(false);
 const activeSourceInfo = ref<SourceInfo | null>(null);
 
-const styleOptions: Array<{ label: string; value: NameStyle }> = [
-  { label: "不限", value: "any" },
-  { label: "响亮", value: "loud" },
-  { label: "柔和", value: "soft" },
+const sortOptions: Array<{ label: string; value: SortMode }> = [
+  { label: "按拼音排序", value: "pinyin" },
+  { label: "按音调评分排序", value: "toneScore" },
 ];
 
 const positionOptions: Array<{ label: string; value: MustPosition }> = [
@@ -589,8 +554,8 @@ const resultSummary = computed(() => {
       ? `已收藏 ${favorites.value.length} 个名字`
       : "尚未收藏名字";
   }
-  if (!hasSearched.value) return selectedSourceLabel.value;
-  return `第 ${currentPage.value} 页 · ${selectedSourceLabel.value}`;
+  if (!hasSearched.value) return "输入指定字后生成候选";
+  return `第 ${currentPage.value} 页`;
 });
 
 const emptyStateText = computed(() => {
@@ -645,7 +610,7 @@ watch(
     mustPosition,
     avoidText,
     limit,
-    randomSort,
+    sortMode,
   ],
   () => {
     if (storageReady.value) {
@@ -690,11 +655,6 @@ function onLimitInput(event: any) {
   setLimit(Number(event?.detail?.value || 0));
 }
 
-function onRandomSortChange(event: any) {
-  const values = event?.detail?.value;
-  randomSort.value = Array.isArray(values) && values.includes("random");
-}
-
 function onFrequencyInput(bound: "min" | "max", event: any) {
   const value = Number(event?.detail?.value || 0);
   setFrequencyRange(bound, value);
@@ -732,7 +692,7 @@ function getCurrentQueryConfig(): StoredQueryConfig {
     mustPosition: mustPosition.value,
     avoidText: avoidText.value,
     limit: limit.value,
-    randomSort: randomSort.value,
+    sortMode: sortMode.value,
   };
 }
 
@@ -767,7 +727,7 @@ function restoreQueryConfig() {
     frequencyMin.value = clampFrequencyPercent(stored.frequencyMin);
   if (typeof stored.frequencyMax === "number")
     frequencyMax.value = clampFrequencyPercent(stored.frequencyMax);
-  if (isNameStyle(stored.style)) style.value = stored.style;
+  // 风格选择已取消，style 恒为 any；不恢复旧配置里的 loud/soft
   if (typeof stored.mustText === "string") {
     mustText.value = sliceText(normalizeMustText(stored.mustText), 160);
   }
@@ -775,8 +735,7 @@ function restoreQueryConfig() {
     mustPosition.value = stored.mustPosition;
   if (typeof stored.avoidText === "string") avoidText.value = stored.avoidText;
   if (typeof stored.limit === "number") setLimit(stored.limit);
-  if (typeof stored.randomSort === "boolean")
-    randomSort.value = stored.randomSort;
+  if (isSortMode(stored.sortMode)) sortMode.value = stored.sortMode;
 }
 
 function saveQueryConfig() {
@@ -867,24 +826,38 @@ async function exportCsv() {
   }
 }
 
-/**
- * 按当前查询条件重新跑一次全量查询，拿到所有符合条件的候选名（不受分页 limit 限制）。
- */
-async function collectAllResults(): Promise<PublicResult[]> {
-  const cleanedSurname = stripNonChinese(surname.value);
-  if (!cleanedSurname) throw new Error("请输入姓氏");
-  const must = splitChineseChars(mustText.value);
-  if (must.length === 0) {
-    throw new Error("请先输入指定字，再生成候选");
-  }
+/** 把带声调的拼音转成可比较的字母序键（ü 按 v 处理，声调忽略）。 */
+function pinyinSortKey(item: PublicResult): string {
+  return item.pinyin
+    .join("")
+    .replace(/[üǖǘǚǜ]/gu, "v")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/gu, "")
+    .toLowerCase();
+}
 
+function sortByPinyin(items: PublicResult[]): PublicResult[] {
+  return items
+    .map((item) => ({ item, key: pinyinSortKey(item) }))
+    .sort((a, b) => {
+      if (a.key !== b.key) return a.key < b.key ? -1 : 1;
+      if (b.item.score !== a.item.score) return b.item.score - a.item.score;
+      return a.item.name.localeCompare(b.item.name, "zh-Hans-CN");
+    })
+    .map((entry) => entry.item);
+}
+
+/**
+ * 全量查询并按当前排序模式排列，按查询签名缓存，分页与导出共用同一份结果。
+ * toneScore 沿用 queryNames 的综合评分降序（音调/音律是主要打分项）。
+ */
+async function getSortedResults(): Promise<PublicResult[]> {
   const searchSignature = getCurrentSearchSignature();
   if (
-    randomSort.value &&
-    randomizedSearchSignature.value === searchSignature &&
-    randomizedResults.value.length > 0
+    sortedSearchSignature.value === searchSignature &&
+    sortedResults.value.length > 0
   ) {
-    return randomizedResults.value;
+    return sortedResults.value;
   }
 
   const candidateDb = applyFrequencyRange(
@@ -892,9 +865,9 @@ async function collectAllResults(): Promise<PublicResult[]> {
   );
   const loadedCharDb = await loadCharDb();
   const query: QueryConfig = {
-    surname: cleanedSurname,
+    surname: stripNonChinese(surname.value),
     avoid: parseAvoidList(avoidText.value),
-    must,
+    must: splitChineseChars(mustText.value),
     mustPosition: mustPosition.value,
     style: style.value,
     sourcePreference: selectedSourceId.value,
@@ -905,8 +878,23 @@ async function collectAllResults(): Promise<PublicResult[]> {
     charDb: loadedCharDb,
     query,
   }).map(toPublicResult);
+  const ordered =
+    sortMode.value === "pinyin" ? sortByPinyin(allResults) : allResults;
 
-  return randomSort.value ? shuffleResults(allResults) : allResults;
+  sortedResults.value = ordered;
+  sortedSearchSignature.value = searchSignature;
+  return ordered;
+}
+
+/**
+ * 按当前查询条件全量导出（不受分页 limit 限制）。
+ */
+async function collectAllResults(): Promise<PublicResult[]> {
+  if (!stripNonChinese(surname.value)) throw new Error("请输入姓氏");
+  if (splitChineseChars(mustText.value).length === 0) {
+    throw new Error("请先输入指定字，再生成候选");
+  }
+  return getSortedResults();
 }
 
 function writeCsvFile(items: PublicResult[], filenamePrefix: string) {
@@ -959,8 +947,8 @@ function isSourcePreference(value: unknown): value is SourcePreference {
   );
 }
 
-function isNameStyle(value: unknown): value is NameStyle {
-  return styleOptions.some((item) => item.value === value);
+function isSortMode(value: unknown): value is SortMode {
+  return sortOptions.some((item) => item.value === value);
 }
 
 function isMustPosition(value: unknown): value is MustPosition {
@@ -1077,7 +1065,7 @@ async function handleSearch() {
   if (isSearching.value) return;
   const isContinuing = canContinueCurrentSearch.value;
   const nextPage = isContinuing ? currentPage.value + 1 : 1;
-  await runSearchPage(nextPage, { refreshRandom: !isContinuing });
+  await runSearchPage(nextPage);
 }
 
 async function goToPreviousPage() {
@@ -1090,19 +1078,13 @@ async function goToNextPage() {
   await runSearchPage(currentPage.value + 1);
 }
 
-async function runSearchPage(
-  page: number,
-  options: { refreshRandom?: boolean } = {},
-) {
+async function runSearchPage(page: number) {
   errorMessage.value = "";
-  const cleanedSurname = stripNonChinese(surname.value);
-  if (!cleanedSurname) {
+  if (!stripNonChinese(surname.value)) {
     errorMessage.value = "请输入姓氏";
     return;
   }
-
-  const must = splitChineseChars(mustText.value);
-  if (must.length === 0) {
+  if (splitChineseChars(mustText.value).length === 0) {
     showToast("请先输入指定字，再生成候选", 2500);
     return;
   }
@@ -1111,53 +1093,13 @@ async function runSearchPage(
   displayMode.value = "generated";
   isSearching.value = true;
   try {
-    const candidateDb = applyFrequencyRange(
-      await loadCandidateDb(selectedSourceId.value),
-    );
-    const loadedCharDb = await loadCharDb();
+    const queriedResults = await getSortedResults();
     const pageSize = limit.value;
     const start = (page - 1) * pageSize;
-    const searchLimit = randomSort.value
-      ? candidateDb.length
-      : page * pageSize + 1;
-    const query: QueryConfig = {
-      surname: cleanedSurname,
-      avoid: parseAvoidList(avoidText.value),
-      must,
-      mustPosition: mustPosition.value,
-      style: style.value,
-      sourcePreference: selectedSourceId.value,
-      limit: searchLimit,
-    };
-    let queriedResults: PublicResult[];
-    const searchSignature = getCurrentSearchSignature();
-    if (randomSort.value) {
-      if (
-        options.refreshRandom ||
-        randomizedSearchSignature.value !== searchSignature ||
-        randomizedResults.value.length === 0
-      ) {
-        randomizedResults.value = shuffleResults(
-          queryNames({ candidateDb, charDb: loadedCharDb, query }).map(
-            toPublicResult,
-          ),
-        );
-        randomizedSearchSignature.value = searchSignature;
-      }
-      queriedResults = randomizedResults.value;
-    } else {
-      randomizedResults.value = [];
-      randomizedSearchSignature.value = "";
-      queriedResults = queryNames({
-        candidateDb,
-        charDb: loadedCharDb,
-        query,
-      }).map(toPublicResult);
-    }
     results.value = queriedResults.slice(start, start + pageSize);
     currentPage.value = page;
     reachedEnd.value = queriedResults.length <= start + pageSize;
-    lastSearchSignature.value = searchSignature;
+    lastSearchSignature.value = getCurrentSearchSignature();
   } catch (error) {
     errorMessage.value = getErrorMessage(error);
     results.value = [];
@@ -1287,17 +1229,6 @@ function getFrequencyIndexes(total: number): { start: number; end: number } {
     autoExcluded + Math.ceil(endPercent * selectableTotal),
   );
   return { start, end: Math.max(start, end) };
-}
-
-function shuffleResults<T>(items: T[]): T[] {
-  const shuffled = [...items];
-  for (let index = shuffled.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    const current = shuffled[index];
-    shuffled[index] = shuffled[swapIndex];
-    shuffled[swapIndex] = current;
-  }
-  return shuffled;
 }
 
 function clampPercent(value: number): number {
@@ -1665,25 +1596,16 @@ function getErrorMessage(error: unknown): string {
   gap: 10px;
 }
 
-.checkbox-group {
-  height: 72px;
-  display: flex;
-  align-items: center;
+.segmented.sort-segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.checkbox-option {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 72px;
-  border: 1px solid #d8ddd8;
-  border-radius: 8px;
-  background: #f8faf8;
-  color: #27312e;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 0 18px;
-  font-size: 24px;
+.segmented.sort-segmented .segment-button {
+  font-size: 20px;
+  line-height: 26px;
+  padding: 0 4px;
+  white-space: normal;
+  text-align: center;
 }
 
 .icon-button {
